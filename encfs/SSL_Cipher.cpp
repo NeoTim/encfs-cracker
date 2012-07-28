@@ -17,6 +17,7 @@
  */
 
 #include "encfs.h"
+#include "pbkdf2.h"
 
 #include "config.h"
 
@@ -72,12 +73,12 @@ inline int MIN(int a, int b)
     password->data mappings, which is what the salt is meant to frustrate.
 */
 int BytesToKey( int keyLen, int ivLen, const EVP_MD *md,
-	const unsigned char *data, int dataLen, 
+	const unsigned char *data, int dataLen,
 	unsigned int rounds, unsigned char *key, unsigned char *iv)
 {
     if( data == NULL || dataLen == 0 )
 	return 0; // OpenSSL returns nkey here, but why?  It is a failure..
-    
+
     unsigned char mdBuf[ EVP_MAX_MD_SIZE ];
     unsigned int mds=0;
     int addmd =0;
@@ -145,7 +146,7 @@ int TimedPBKDF2(const char *pass, int passlen,
     {
         gettimeofday( &start, 0 );
         int res = PKCS5_PBKDF2_HMAC_SHA1(
-                pass, passlen, const_cast<unsigned char*>(salt), saltlen, 
+                pass, passlen, const_cast<unsigned char*>(salt), saltlen,
                 iter, keylen, out);
         if(res != 1)
             return -1;
@@ -157,9 +158,9 @@ int TimedPBKDF2(const char *pass, int passlen,
         {
             iter *= 4;
         } else if(delta < (5 * desiredPDFTime / 6))
-        {   
+        {
             // estimate number of iterations to get close to desired time
-            iter = (int)((double)iter * (double)desiredPDFTime 
+            iter = (int)((double)iter * (double)desiredPDFTime
                     / (double)delta);
         } else
             return iter;
@@ -169,7 +170,7 @@ int TimedPBKDF2(const char *pass, int passlen,
 
 // - Version 1:0 used EVP_BytesToKey, which didn't do the right thing for
 // Blowfish key lengths > 128 bit.
-// - Version 2:0 uses BytesToKey. 
+// - Version 2:0 uses BytesToKey.
 // We support both 2:0 and 1:0, hence current:revision:age = 2:0:1
 // - Version 2:1 adds support for Message Digest function interface
 // - Version 2:2 adds PBKDF2 for password derivation
@@ -196,9 +197,9 @@ static shared_ptr<Cipher> NewBFCipher( const Interface &iface, int keyLen )
 	    blockCipher, streamCipher, keyLen / 8) );
 }
 
-static bool BF_Cipher_registered = Cipher::Register("Blowfish", 
+static bool BF_Cipher_registered = Cipher::Register("Blowfish",
 	// xgroup(setup)
-	gettext_noop("8 byte block cipher"), 
+	gettext_noop("8 byte block cipher"),
 	BlowfishInterface, BFKeyRange, BFBlockRange, NewBFCipher);
 #endif
 
@@ -236,13 +237,13 @@ static shared_ptr<Cipher> NewAESCipher( const Interface &iface, int keyLen )
 	streamCipher = EVP_aes_256_cfb();
 	break;
     }
-    
-    return shared_ptr<Cipher>( new SSL_Cipher(iface, AESInterface, 
+
+    return shared_ptr<Cipher>( new SSL_Cipher(iface, AESInterface,
 		blockCipher, streamCipher, keyLen / 8) );
 }
 
-static bool AES_Cipher_registered = Cipher::Register("AES", 
-	"16 byte block cipher", 
+static bool AES_Cipher_registered = Cipher::Register("AES",
+	"16 byte block cipher",
 	AESInterface, AESKeyRange, AESBlockRange, NewAESCipher);
 #endif
 
@@ -250,13 +251,13 @@ class SSLKey : public AbstractCipherKey
 {
 public:
     pthread_mutex_t mutex;
-    
+
     unsigned int keySize; // in bytes
     unsigned int ivLength;
 
-    // key data is first _keySize bytes, 
+    // key data is first _keySize bytes,
     // followed by iv of _ivLength bytes,
-    unsigned char *buffer; 
+    unsigned char *buffer;
 
     EVP_CIPHER_CTX block_enc;
     EVP_CIPHER_CTX block_dec;
@@ -292,7 +293,7 @@ SSLKey::~SSLKey()
     keySize = 0;
     ivLength = 0;
     buffer = 0;
-    
+
     EVP_CIPHER_CTX_cleanup( &block_enc );
     EVP_CIPHER_CTX_cleanup( &block_dec );
     EVP_CIPHER_CTX_cleanup( &stream_enc );
@@ -323,7 +324,7 @@ void initKey(const shared_ptr<SSLKey> &key, const EVP_CIPHER *_blockCipher,
     EVP_CIPHER_CTX_init( &key->block_dec );
     EVP_CIPHER_CTX_init( &key->stream_enc );
     EVP_CIPHER_CTX_init( &key->stream_dec );
-    
+
     EVP_EncryptInit_ex( &key->block_enc, _blockCipher, NULL, NULL, NULL);
     EVP_DecryptInit_ex( &key->block_dec, _blockCipher, NULL, NULL, NULL);
     EVP_EncryptInit_ex( &key->stream_enc, _streamCipher, NULL, NULL, NULL);
@@ -333,7 +334,7 @@ void initKey(const shared_ptr<SSLKey> &key, const EVP_CIPHER *_blockCipher,
     EVP_CIPHER_CTX_set_key_length( &key->block_dec, _keySize );
     EVP_CIPHER_CTX_set_key_length( &key->stream_enc, _keySize );
     EVP_CIPHER_CTX_set_key_length( &key->stream_dec, _keySize );
-    
+
     EVP_CIPHER_CTX_set_padding( &key->block_enc, 0 );
     EVP_CIPHER_CTX_set_padding( &key->block_dec, 0 );
     EVP_CIPHER_CTX_set_padding( &key->stream_enc, 0 );
@@ -343,7 +344,7 @@ void initKey(const shared_ptr<SSLKey> &key, const EVP_CIPHER *_blockCipher,
     EVP_DecryptInit_ex( &key->block_dec, NULL, NULL, KeyData(key), NULL);
     EVP_EncryptInit_ex( &key->stream_enc, NULL, NULL, KeyData(key), NULL);
     EVP_DecryptInit_ex( &key->stream_dec, NULL, NULL, KeyData(key), NULL);
-    
+
     HMAC_CTX_init( &key->mac_ctx );
     HMAC_Init_ex( &key->mac_ctx, KeyData(key), _keySize, EVP_sha1(), 0 );
 }
@@ -353,7 +354,7 @@ static RLogChannel * CipherInfo = DEF_CHANNEL( "info/cipher", Log_Info );
 
 SSL_Cipher::SSL_Cipher(const Interface &iface_,
 	const Interface &realIface_,
-	const EVP_CIPHER *blockCipher, 
+	const EVP_CIPHER *blockCipher,
 	const EVP_CIPHER *streamCipher,
 	int keySize_)
 {
@@ -363,13 +364,13 @@ SSL_Cipher::SSL_Cipher(const Interface &iface_,
     this->_streamCipher = streamCipher;
     this->_keySize = keySize_;
     this->_ivLength = EVP_CIPHER_iv_length( _blockCipher );
-   
+
     rAssert(_ivLength == 8 || _ivLength == 16);
 
-    rLog(CipherInfo, "allocated cipher %s, keySize %i, ivlength %i", 
+    rLog(CipherInfo, "allocated cipher %s, keySize %i, ivlength %i",
 	    iface.name().c_str(), _keySize, _ivLength);
-	
-    if( (EVP_CIPHER_key_length( _blockCipher ) != (int )_keySize) 
+
+    if( (EVP_CIPHER_key_length( _blockCipher ) != (int )_keySize)
 	    && iface.current() == 1)
     {
 	rWarning("Running in backward compatibilty mode for 1.0 - \n"
@@ -401,11 +402,11 @@ CipherKey SSL_Cipher::newKey(const char *password, int passwdLength,
         const unsigned char *salt, int saltLen)
 {
     shared_ptr<SSLKey> key( new SSLKey( _keySize, _ivLength) );
-    
+
     if(iterationCount == 0)
     {
         // timed run, fills in iteration count
-        int res = TimedPBKDF2(password, passwdLength, 
+        int res = TimedPBKDF2(password, passwdLength,
                     salt, saltLen,
                     _keySize+_ivLength, KeyData(key),
                     1000 * desiredDuration);
@@ -418,16 +419,19 @@ CipherKey SSL_Cipher::newKey(const char *password, int passwdLength,
     } else
     {
         // known iteration length
-        if(PKCS5_PBKDF2_HMAC_SHA1(
-                    password, passwdLength, 
-                    const_cast<unsigned char*>(salt), saltLen, 
+	uint32_t out_[32];
+	pbkdf2(reinterpret_cast < const unsigned char* >(password), passwdLength, const_cast<unsigned char*>(salt), saltLen, iterationCount, out_);
+        /* if(PKCS5_PBKDF2_HMAC_SHA1(
+                    password, passwdLength,
+                    const_cast<unsigned char*>(salt), saltLen,
                     iterationCount, _keySize + _ivLength, KeyData(key)) != 1)
         {
             rWarning("openssl error, PBKDF2 failed");
             return CipherKey();
-        }
+        } */
+	memcpy(KeyData(key), out_, _keySize + _ivLength);
     }
-  
+
     initKey( key, _blockCipher, _streamCipher, _keySize );
 
     return key;
@@ -436,13 +440,13 @@ CipherKey SSL_Cipher::newKey(const char *password, int passwdLength,
 CipherKey SSL_Cipher::newKey(const char *password, int passwdLength)
 {
     shared_ptr<SSLKey> key( new SSLKey( _keySize, _ivLength) );
-    
+
     int bytes = 0;
     if( iface.current() > 1 )
     {
 	// now we use BytesToKey, which can deal with Blowfish keys larger then
 	// 128 bits.
-	bytes = BytesToKey( _keySize, _ivLength, EVP_sha1(), 
+	bytes = BytesToKey( _keySize, _ivLength, EVP_sha1(),
 	    (unsigned char *)password, passwdLength, 16,
 	    KeyData(key), IVData(key) );
 
@@ -459,7 +463,7 @@ CipherKey SSL_Cipher::newKey(const char *password, int passwdLength)
 	    (unsigned char *)password, passwdLength, 16,
 	    KeyData(key), IVData(key) );
     }
-  
+
     initKey( key, _blockCipher, _streamCipher, _keySize );
 
     return key;
@@ -488,7 +492,7 @@ CipherKey SSL_Cipher::newRandomKey()
 
     // doesn't need to be versioned, because a random key is a random key..
     // Doesn't need to be reproducable..
-    if(PKCS5_PBKDF2_HMAC_SHA1((char*)tmpBuf, bufLen, saltBuf, saltLen, 
+    if(PKCS5_PBKDF2_HMAC_SHA1((char*)tmpBuf, bufLen, saltBuf, saltLen,
             1000, _keySize + _ivLength, KeyData(key)) != 1)
     {
         rWarning("openssl error, PBKDF2 failed");
@@ -550,13 +554,13 @@ bool SSL_Cipher::randomize( unsigned char *buf, int len,
         bool strongRandom ) const
 {
     // to avoid warnings of uninitialized data from valgrind
-    memset(buf, 0, len); 
+    memset(buf, 0, len);
     int result;
     if(strongRandom)
         result = RAND_bytes( buf, len );
     else
         result = RAND_pseudo_bytes( buf, len );
-        
+
     if(result != 1)
     {
 	char errStr[120]; // specs require string at least 120 bytes long..
@@ -581,12 +585,12 @@ uint64_t SSL_Cipher::MAC_64( const unsigned char *data, int len,
     return tmp;
 }
 
-CipherKey SSL_Cipher::readKey(const unsigned char *data, 
+CipherKey SSL_Cipher::readKey(const unsigned char *data,
 	const CipherKey &masterKey, bool checkKey)
 {
     shared_ptr<SSLKey> mk = dynamic_pointer_cast<SSLKey>(masterKey);
     rAssert(mk->keySize == _keySize);
-    
+
     unsigned char tmpBuf[ MAX_KEYLENGTH + MAX_IVLENGTH ];
 
     // First N bytes are checksum bytes.
@@ -606,9 +610,9 @@ CipherKey SSL_Cipher::readKey(const unsigned char *data,
 	memset( tmpBuf, 0, sizeof(tmpBuf) );
 	return CipherKey();
     }
-    
+
     shared_ptr<SSLKey> key( new SSLKey( _keySize, _ivLength) );
-    
+
     memcpy( key->buffer, tmpBuf, _keySize + _ivLength );
     memset( tmpBuf, 0, sizeof(tmpBuf) );
 
@@ -617,7 +621,7 @@ CipherKey SSL_Cipher::readKey(const unsigned char *data,
     return key;
 }
 
-void SSL_Cipher::writeKey(const CipherKey &ckey, unsigned char *data, 
+void SSL_Cipher::writeKey(const CipherKey &ckey, unsigned char *data,
 	const CipherKey &masterKey)
 {
     shared_ptr<SSLKey> key = dynamic_pointer_cast<SSLKey>(ckey);
@@ -686,7 +690,7 @@ void SSL_Cipher::setIVec( unsigned char *ivec, uint64_t seed,
 
         unsigned char md[EVP_MAX_MD_SIZE];
         unsigned int mdLen = EVP_MAX_MD_SIZE;
-       
+
         for(int i=0; i<8; ++i)
         {
             md[i] = (unsigned char)(seed & 0xff);
@@ -720,13 +724,13 @@ void SSL_Cipher::setIVec_old(unsigned char *ivec,
     /* These multiplication constants chosen as they represent (non optimal)
        Golumb rulers, the idea being to spread around the information in the
        seed.
-    
+
        0x060a4011 : ruler length 26, 7 marks, 21 measurable lengths
        0x0221040d : ruler length 25, 7 marks, 21 measurable lengths
     */
-    unsigned int var1 = 0x060a4011 * seed; 
+    unsigned int var1 = 0x060a4011 * seed;
     unsigned int var2 = 0x0221040d * (seed ^ 0xD3FEA11C);
-    
+
     memcpy( ivec, IVData(key), _ivLength );
 
     ivec[0] ^= (var1 >> 24) & 0xff;
@@ -785,7 +789,7 @@ static void unshuffleBytes(unsigned char *buf, int size)
 /* Partial blocks are encoded with a stream cipher.  We make multiple passes on
  the data to ensure that the ends of the data depend on each other.
 */
-bool SSL_Cipher::streamEncode(unsigned char *buf, int size, 
+bool SSL_Cipher::streamEncode(unsigned char *buf, int size,
 	uint64_t iv64, const CipherKey &ckey) const
 {
     rAssert( size > 0 );
@@ -823,7 +827,7 @@ bool SSL_Cipher::streamEncode(unsigned char *buf, int size,
     return true;
 }
 
-bool SSL_Cipher::streamDecode(unsigned char *buf, int size, 
+bool SSL_Cipher::streamDecode(unsigned char *buf, int size,
 	uint64_t iv64, const CipherKey &ckey) const
 {
     rAssert( size > 0 );
@@ -848,9 +852,9 @@ bool SSL_Cipher::streamDecode(unsigned char *buf, int size,
     EVP_DecryptInit_ex( &key->stream_dec, NULL, NULL, NULL, ivec);
     EVP_DecryptUpdate( &key->stream_dec, buf, &dstLen, buf, size );
     EVP_DecryptFinal_ex( &key->stream_dec, buf+dstLen, &tmpLen );
-    
+
     unshuffleBytes( buf, size );
-    
+
     dstLen += tmpLen;
     if(dstLen != size)
     {
@@ -862,19 +866,19 @@ bool SSL_Cipher::streamDecode(unsigned char *buf, int size,
 }
 
 
-bool SSL_Cipher::blockEncode(unsigned char *buf, int size, 
+bool SSL_Cipher::blockEncode(unsigned char *buf, int size,
 	uint64_t iv64, const CipherKey &ckey ) const
 {
     rAssert( size > 0 );
     shared_ptr<SSLKey> key = dynamic_pointer_cast<SSLKey>(ckey);
     rAssert(key->keySize == _keySize);
     rAssert(key->ivLength == _ivLength);
-    
+
     // data must be integer number of blocks
     const int blockMod = size % EVP_CIPHER_CTX_block_size( &key->block_enc );
     if(blockMod != 0)
 	throw ERROR("Invalid data size, not multiple of block size");
-    
+
     Lock lock( key->mutex );
 
     unsigned char ivec[ MAX_IVLENGTH ];
@@ -886,7 +890,7 @@ bool SSL_Cipher::blockEncode(unsigned char *buf, int size,
     EVP_EncryptUpdate( &key->block_enc, buf, &dstLen, buf, size );
     EVP_EncryptFinal_ex( &key->block_enc, buf+dstLen, &tmpLen );
     dstLen += tmpLen;
-    
+
     if(dstLen != size)
     {
 	rError("encoding %i bytes, got back %i (%i in final_ex)",
@@ -896,7 +900,7 @@ bool SSL_Cipher::blockEncode(unsigned char *buf, int size,
     return true;
 }
 
-bool SSL_Cipher::blockDecode(unsigned char *buf, int size, 
+bool SSL_Cipher::blockDecode(unsigned char *buf, int size,
 	uint64_t iv64, const CipherKey &ckey ) const
 {
     rAssert( size > 0 );
@@ -908,7 +912,7 @@ bool SSL_Cipher::blockDecode(unsigned char *buf, int size,
     const int blockMod = size % EVP_CIPHER_CTX_block_size( &key->block_dec );
     if(blockMod != 0)
 	throw ERROR("Invalid data size, not multiple of block size");
-    
+
     Lock lock( key->mutex );
 
     unsigned char ivec[ MAX_IVLENGTH ];
@@ -920,7 +924,7 @@ bool SSL_Cipher::blockDecode(unsigned char *buf, int size,
     EVP_DecryptUpdate( &key->block_dec, buf, &dstLen, buf, size );
     EVP_DecryptFinal_ex( &key->block_dec, buf+dstLen, &tmpLen );
     dstLen += tmpLen;
-    
+
     if(dstLen != size)
     {
 	rError("decoding %i bytes, got back %i (%i in final_ex)",

@@ -1422,6 +1422,7 @@ CipherKey EncFSConfig::getUserKey(bool useStdin)
 
     if( useStdin )
     {
+    	memset( passBuf, 0, sizeof(passBuf) );
 	res = fgets( passBuf, sizeof(passBuf), stdin );
 	// Kill the trailing newline.
 	if(passBuf[ strlen(passBuf)-1 ] == '\n')
